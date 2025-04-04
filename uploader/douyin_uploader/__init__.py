@@ -2,4 +2,5 @@ from pathlib import Path
 
 from conf import BASE_DIR
 
-Path(BASE_DIR / "cookies" / "douyin_uploader").mkdir(exist_ok=True)
+# 移除旧目录结构的创建
+# 新版本使用统一的路径格式

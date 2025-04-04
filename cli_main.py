@@ -42,6 +42,29 @@ async def main():
             action_parser.add_argument("-pt", "--publish_type", type=int, choices=[0, 1],
                                        help="0 for immediate, 1 for scheduled", default=0)
             action_parser.add_argument('-t', '--schedule', help='Schedule UTC time in %Y-%m-%d %H:%M format')
+        elif action == 'watch':
+            # 为watch命令添加参数说明
+            action_parser.add_argument("-d", "--days", type=int, 
+                                      help="Number of days to watch scheduled videos", default=1)
+            action_parser.add_argument("-l", "--limit", type=int,
+                                      help="Maximum number of videos to display", default=10)
+
+    # 为子解析器添加使用示例
+    parser.epilog = '''Examples:
+    # 登录到平台
+    python cli_main.py douyin test login
+    
+    # 立即上传视频
+    python cli_main.py douyin test upload "path/to/video.mp4" -pt 0
+    
+    # 定时上传视频
+    python cli_main.py douyin test upload "path/to/video.mp4" -pt 1 -t "2024-6-14 12:00"
+    
+    # 查看已计划的视频
+    python cli_main.py douyin test watch -d 7 -l 20
+    '''
+    
+    parser.formatter_class = argparse.RawDescriptionHelpFormatter  # 使示例格式保持原样
 
     # 解析命令行参数
     args = parser.parse_args()
@@ -95,6 +118,13 @@ async def main():
             exit()
 
         await app.main()
+    elif args.action == 'watch':
+        print(f"Watching scheduled videos for account {args.account_name} on platform {args.platform}")
+        print(f"Showing videos scheduled for the next {args.days} days (limit: {args.limit})")
+        
+        # 这里可以实现实际的watch功能，查看已计划的视频
+        # 目前只是打印一条提示消息
+        print(f"注意: watch功能尚未完全实现，此命令仅用于演示")
 
 
 if __name__ == "__main__":

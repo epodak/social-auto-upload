@@ -76,13 +76,13 @@ meta_file 内容(content)：
 
 #### cli 用法
 ```python 
-python cli_main.py <platform> <account_name> <action: upload, login> [options]
+python cli_main.py <platform> <account_name> <action: upload, login, watch> [options]
 ```
 查看详细的参数说明使用：
 ```python
 python cli_main.py -h
 ```
-```python
+```
 usage: cli_main.py [-h] platform account_name action ...
 
 Upload video to multiple social-media.
@@ -98,18 +98,68 @@ positional arguments:
 options:
   -h, --help    show this help message and exit
 
-```
-示例
-```python
-python cli_main.py douyin test login
-douyin平台，账号名为test，动作为login
+Examples:
+    # 登录到平台
+    python cli_main.py douyin test login
 
-python cli_main.py douyin test upload "C:\Users\duperdog\Videos\2023-11-07_05-27-44 - 这位少女如梦中仙... .mp4" -pt 0
-douyin平台, 账号名为test, 动作为upload, 视频文件（需对应的meta文件，详见上）, 发布方式（pt）：0 立即发布
+    # 立即上传视频
+    python cli_main.py douyin test upload "path/to/video.mp4" -pt 0
 
-python cli_main.py douyin test upload "C:\Users\superdog\Videos\2023-11-07_05-27-44 - 这位少女如梦中仙... .mp4" -pt 1 -t "2024-6-14 12:00"
-douyin平台, 账号名为test, 动作为upload, 视频文件, 发布方式（pt）：1 定时发布, 发布时间(t)： 2024-6-14 12:00
+    # 定时上传视频
+    python cli_main.py douyin test upload "path/to/video.mp4" -pt 1 -t "2024-6-14 12:00"
+
+    # 查看已计划的视频
+    python cli_main.py douyin test watch -d 7 -l 20
 ```
+
+#### 工具使用流程
+1. 首先登录您的账号（需要每个平台分别登录）:
+   ```bash
+   python cli_main.py douyin your_account_name login
+   # 或
+   python cli_main.py tiktok your_account_name login
+   # 或
+   python cli_main.py tencent your_account_name login
+   ```
+
+2. 上传视频有两种方式:
+   - 立即发布:
+     ```bash
+     python cli_main.py douyin your_account_name upload "/path/to/your/video.mp4" -pt 0
+     ```
+   
+   - 定时发布(需指定发布时间):
+     ```bash
+     python cli_main.py douyin your_account_name upload "/path/to/your/video.mp4" -pt 1 -t "2024-8-15 18:30"
+     ```
+
+3. 查看已计划的视频:
+   ```bash
+   # 默认查看未来1天内计划的视频，最多显示10个
+   python cli_main.py douyin your_account_name watch
+   
+   # 查看未来7天内计划的视频，最多显示20个
+   python cli_main.py douyin your_account_name watch -d 7 -l 20
+   ```
+
+#### 特别说明
+- 视频文件旁边需要有同名的meta信息txt文件，用于提取标题和标签
+- 例如视频文件为 `my_video.mp4`，则需要有 `my_video.txt` 文件
+- txt文件内容格式：第一行为标题，第二行为标签（以空格分隔）
+
+示例: 视频文件 `2023-08-24_16-29-52 - 这位勇敢的男子为了心爱之人每天坚守 .mp4`
+
+对应的meta文件 `2023-08-24_16-29-52 - 这位勇敢的男子为了心爱之人每天坚守 .txt` 内容:
+```
+这位勇敢的男子为了心爱之人每天坚守 🥺❤️‍🩹
+#坚持不懈 #爱情执着 #奋斗使者 #短视频
+```
+
+如果您是新手用户，建议按照以下步骤操作:
+1. 准备好您的视频和对应的meta文件
+2. 登录您想要发布到的平台
+3. 使用upload命令上传视频（可选择立即发布或定时发布）
+4. 使用watch命令检查您已计划发布的视频
 
 ---
 
