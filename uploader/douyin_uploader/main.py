@@ -161,48 +161,66 @@ class DouYinVideo(object):
         await asyncio.sleep(1)
 
     async def handle_upload_error(self, page):
-        douyin_logger.info('视频出错了，重新上传中')
+        douyin_logger.info('发现上传错误，尝试重新上传...')
         
+        upload_success = False
+        
+        # 方法1: 如果有明确的重新上传按钮，点击它
         try:
-            # 寻找重新上传按钮并点击
             retry_button = page.locator("button:has-text('重新上传'), div:has-text('重新上传'):visible")
             if await retry_button.count() > 0:
                 douyin_logger.info('找到重新上传按钮，点击中...')
-                async with page.expect_file_chooser() as fc_info:
-                    await retry_button.click()
-                file_chooser = await fc_info.value
-                await file_chooser.set_files(self.file_path)
-                return
+                # 尝试使用文件选择器
+                try:
+                    async with page.expect_file_chooser() as fc_info:
+                        await retry_button.click()
+                    file_chooser = await fc_info.value
+                    await file_chooser.set_files(self.file_path)
+                    douyin_logger.info('通过文件选择器重新上传成功')
+                    upload_success = True
+                    return
+                except Exception as e:
+                    douyin_logger.warning(f'文件选择器方法失败: {str(e)}')
         except Exception as e:
-            douyin_logger.warning(f'点击重新上传按钮失败: {str(e)}')
+            douyin_logger.warning(f'寻找重新上传按钮失败: {str(e)}')
         
-        # 如果上面的方法失败，尝试直接设置隐藏的文件输入
-        try:
-            douyin_logger.info('尝试直接设置文件输入...')
-            await page.locator('input[type="file"]').set_input_files(self.file_path)
-            return
-        except Exception as e:
-            douyin_logger.warning(f'直接设置文件输入失败: {str(e)}')
+        # 方法2: 直接寻找并设置文件输入元素
+        if not upload_success:
+            try:
+                file_inputs = await page.locator('input[type="file"]').all()
+                if file_inputs:
+                    await file_inputs[0].set_input_files(self.file_path)
+                    douyin_logger.info('通过直接设置文件输入重新上传成功')
+                    upload_success = True
+                    return
+            except Exception as e:
+                douyin_logger.warning(f'直接设置文件输入失败: {str(e)}')
         
-        # 最后尝试使用JavaScript方法
-        try:
-            douyin_logger.info('尝试使用JavaScript方法上传...')
-            await page.evaluate("""() => {
-                const inputs = document.querySelectorAll('input[type="file"]');
-                if (inputs.length > 0) {
-                    inputs[0].click();
-                } else {
-                    throw new Error('找不到文件输入元素');
+        # 方法3: 使用JavaScript增强文件输入可见性再尝试
+        if not upload_success:
+            try:
+                await page.evaluate("""
+                () => {
+                    document.querySelectorAll('input[type="file"]').forEach(input => {
+                        input.removeAttribute('disabled');
+                        input.removeAttribute('hidden');
+                        input.setAttribute('style', 'opacity: 1; visibility: visible');
+                    });
                 }
-            }""")
-            
-            async with page.expect_file_chooser() as fc_info:
-                await asyncio.sleep(1)
-            file_chooser = await fc_info.value
-            await file_chooser.set_files(self.file_path)
-        except Exception as e:
-            douyin_logger.error(f'所有重新上传方法都失败: {str(e)}')
-            raise Exception("无法重新上传文件")
+                """)
+                
+                await page.locator('input[type="file"]').first.set_input_files(self.file_path)
+                douyin_logger.info('通过JavaScript辅助重新上传成功')
+                upload_success = True
+                return
+            except Exception as e:
+                douyin_logger.error(f'JavaScript辅助方法失败: {str(e)}')
+        
+        if not upload_success:
+            douyin_logger.error('所有重新上传方法均失败')
+            # 截图以帮助调试
+            await page.screenshot(path=f"reupload_fail_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
+            # 我们不抛出异常，让流程继续，也许视频仍然可以发布
 
     async def wait_for_page_navigation(self, page, expected_urls, timeout=60, check_interval=1):
         """等待页面导航到预期URL之一，带有重试机制"""
@@ -257,66 +275,96 @@ class DouYinVideo(object):
             
             # 检查页面是否已经加载
             try:
-                # 这里不要等待input元素可见，而是等待容器元素
-                await page.wait_for_selector("div.upload-btn", timeout=10000)
-                douyin_logger.info(f"  [-] 已加载上传区域")
+                # 确认页面已加载
+                await page.wait_for_selector("div.upload-btn, div.semi-upload, div:has-text('上传视频')", timeout=10000)
+                douyin_logger.info(f"  [-] 已加载上传页面")
             except Exception as e:
                 # 保存截图以供调试
                 await page.screenshot(path="upload_page_error.png")
-                douyin_logger.error(f"  [-] 找不到上传区域: {str(e)}")
-                
-                # 尝试查找页面上的其他元素来诊断
-                elements = await page.locator("div").all()
-                douyin_logger.info(f"  [-] 页面上找到 {len(elements)} 个div元素")
-                
-                # 重新加载页面再试一次
+                douyin_logger.warning(f"  [-] 未找到标准上传区域: {str(e)}")
+                # 尝试刷新页面
                 await page.reload()
                 await asyncio.sleep(5)
             
-            # 使用file_chooser方式上传文件
+            # 优先使用直接设置文件输入的方法
+            douyin_logger.info(f"  [-] 正在上传视频文件...")
+            upload_success = False
+            
+            # 方法1 (优先): 直接设置文件输入，无需点击，最可靠的方法
             try:
-                douyin_logger.info(f"  [-] 尝试点击上传区域...")
-                
-                # 查找并点击上传按钮
-                # 如果上传按钮可见，直接点击
-                upload_button = page.locator("div.upload-btn, div.semi-upload, button:has-text('上传'), div:has-text('上传视频'):visible")
-                
-                if await upload_button.count() > 0:
-                    douyin_logger.info(f"  [-] 找到上传按钮，正在点击...")
-                    async with page.expect_file_chooser() as fc_info:
-                        await upload_button.click()
-                    file_chooser = await fc_info.value
-                    await file_chooser.set_files(self.file_path)
+                douyin_logger.info(f"  [-] 尝试直接设置文件输入...")
+                file_inputs = await page.locator('input[type="file"]').all()
+                if file_inputs:
+                    await file_inputs[0].set_input_files(self.file_path)
+                    douyin_logger.info(f"  [-] 文件路径已设置: {self.file_path}")
+                    upload_success = True
                 else:
-                    # 如果找不到明确的上传按钮，尝试使用JavaScript点击隐藏的文件输入
-                    douyin_logger.info(f"  [-] 使用JavaScript方法点击文件输入...")
-                    await page.evaluate("""() => {
+                    douyin_logger.warning(f"  [-] 未找到文件输入元素")
+            except Exception as e:
+                douyin_logger.warning(f"  [-] 直接设置文件路径失败: {str(e)}")
+            
+            # 如果方法1失败，尝试方法2: 点击上传区域并使用文件选择器
+            if not upload_success:
+                try:
+                    douyin_logger.info(f"  [-] 尝试点击上传区域...")
+                    upload_button = page.locator("div.upload-btn, div.semi-upload, button:has-text('上传'), div:has-text('上传视频'):visible")
+                    
+                    if await upload_button.count() > 0:
+                        douyin_logger.info(f"  [-] 找到上传按钮，正在点击...")
+                        async with page.expect_file_chooser() as fc_info:
+                            await upload_button.click()
+                        file_chooser = await fc_info.value
+                        # 直接设置完整路径，不需要浏览文件系统
+                        await file_chooser.set_files(self.file_path)
+                        douyin_logger.info(f"  [-] 文件路径已通过选择器设置: {self.file_path}")
+                        upload_success = True
+                except Exception as e:
+                    douyin_logger.warning(f"  [-] 点击上传区域失败: {str(e)}")
+            
+            # 如果以上方法都失败，尝试方法3: 使用JavaScript直接操作DOM
+            if not upload_success:
+                try:
+                    douyin_logger.info(f"  [-] 尝试使用JavaScript方法操作DOM...")
+                    # 首先检查并列出页面上所有input[type="file"]元素
+                    input_count = await page.evaluate("""() => {
                         const inputs = document.querySelectorAll('input[type="file"]');
-                        if (inputs.length > 0) {
-                            inputs[0].click();
-                        } else {
-                            throw new Error('找不到文件输入元素');
-                        }
+                        return inputs.length;
                     }""")
                     
-                    # 等待文件选择器出现
-                    async with page.expect_file_chooser() as fc_info:
-                        await asyncio.sleep(1)  # 等待文件选择器出现
-                    file_chooser = await fc_info.value
-                    await file_chooser.set_files(self.file_path)
-                
-                douyin_logger.info(f'  [-] 已选择视频文件，等待上传...')
-            except Exception as e:
-                douyin_logger.error(f"  [-] 上传文件失败: {str(e)}")
-                # 保存页面截图以供调试
-                await page.screenshot(path="file_upload_fail.png")
-                
-                # 最后尝试直接设置隐藏的文件输入，不进行点击
-                try:
-                    douyin_logger.info(f"  [-] 尝试直接设置文件输入...")
-                    await page.locator('input[type="file"]').set_input_files(self.file_path)
-                except Exception as upload_error:
-                    raise Exception(f"所有上传方法均失败: {str(e)}, 后备方法: {str(upload_error)}")
+                    if input_count > 0:
+                        douyin_logger.info(f"  [-] 找到 {input_count} 个文件输入元素，尝试设置第一个...")
+                        # 通过JavaScript创建文件选择行为
+                        # 注意：这里不使用click()，而是直接用JS修改文件输入属性
+                        await page.evaluate("""
+                        () => {
+                            const input = document.querySelector('input[type="file"]');
+                            // 移除可能阻止设置文件的属性
+                            input.removeAttribute('disabled');
+                            input.removeAttribute('hidden');
+                            input.setAttribute('style', 'opacity: 1; visibility: visible');
+                        }
+                        """)
+                        
+                        # 再次尝试直接设置，因为我们已经通过JS修改了元素
+                        await page.locator('input[type="file"]').first.set_input_files(self.file_path)
+                        douyin_logger.info(f"  [-] 文件路径已通过JavaScript辅助设置: {self.file_path}")
+                        upload_success = True
+                    else:
+                        douyin_logger.warning(f"  [-] 页面上没有找到文件输入元素")
+                except Exception as e:
+                    douyin_logger.error(f"  [-] JavaScript方法失败: {str(e)}")
+            
+            if not upload_success:
+                # 所有方法都失败，保存更详细的页面信息以供调试
+                await page.screenshot(path="all_upload_methods_failed.png")
+                douyin_logger.error(f"  [-] 所有上传方法均失败，当前URL: {page.url}")
+                # 输出页面上的所有按钮和输入元素以便调试
+                buttons = await page.locator('button, div[role="button"]').all_text_contents()
+                inputs = await page.locator('input').count()
+                douyin_logger.info(f"  [-] 页面上找到 {inputs} 个输入元素和以下按钮: {buttons[:5]}")
+                raise Exception("无法上传视频文件，所有方法均失败")
+            
+            douyin_logger.info(f'  [-] 文件已选择，等待上传并处理...')
 
             # 等待页面跳转到发布页面
             publish_page_urls = [
